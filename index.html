@@ -25,6 +25,7 @@ html,body { height:100%; font-family:'DM Sans',sans-serif; background:var(--ocea
 /* screens */
 .screen { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; transition:opacity 0.35s, transform 0.35s; overflow-y:auto; }
 .screen.hidden { opacity:0; transform:translateY(12px); pointer-events:none; }
+@keyframes spin { to { transform:rotate(360deg); } }
 
 /* ── LANDING ── */
 #landingScreen {
@@ -151,12 +152,16 @@ html,body { height:100%; font-family:'DM Sans',sans-serif; background:var(--ocea
     <div class="land-title"><em>Memory Wall</em></div>
     <div class="land-sub">Add your photo to the TV</div>
     <p class="land-desc">Your photo goes up on the big screen in <strong>seconds</strong>. Leave a memory from your stay at Merry Oceans.</p>
-    <div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+    <div class="upload-zone">
       <input type="file" id="fileInput" accept="image/*" onchange="handleFile(event)">
       <div class="upload-icon">📸</div>
       <div class="upload-cta">Take a Photo or Choose from Library</div>
       <div class="upload-hint">It'll appear on the TV within seconds</div>
     </div>
+    <div id="readingIndicator" style="display:none;margin-top:16px;font-size:13px;color:rgba(255,255,255,0.7);letter-spacing:1px;">
+      <span style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.2);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:8px;"></span>Loading photo…
+    </div>
+    <div id="errorBox" style="display:none;margin-top:16px;background:rgba(214,96,74,0.15);border:1px solid rgba(214,96,74,0.5);color:#FFD6CC;padding:12px 16px;border-radius:8px;font-size:13px;line-height:1.4;max-width:320px;text-align:center;"></div>
   </div>
 </div>
 
@@ -214,15 +219,31 @@ const BUCKET = 'merry-oceans-photos';
 
 let selectedFile = null;
 
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.style.display = 'block';
+}
+function clearError() {
+  document.getElementById('errorBox').style.display = 'none';
+}
+
 function handleFile(e) {
+  clearError();
   const file = e.target.files[0];
   if (!file) return;
   selectedFile = file;
+  document.getElementById('readingIndicator').style.display = 'block';
   const reader = new FileReader();
   reader.onload = (ev) => {
+    document.getElementById('readingIndicator').style.display = 'none';
     document.getElementById('previewImg').src = ev.target.result;
     showScreen('previewScreen');
     document.getElementById('nameInput').focus();
+  };
+  reader.onerror = () => {
+    document.getElementById('readingIndicator').style.display = 'none';
+    showError('Could not read that photo. Try a smaller one or take a new shot.');
   };
   reader.readAsDataURL(file);
 }
@@ -268,10 +289,13 @@ async function uploadPhoto() {
       }
     );
 
-    if (!uploadRes.ok) throw new Error('Upload failed');
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text().catch(() => '');
+      throw new Error('Upload ' + uploadRes.status + ': ' + errText.slice(0, 120));
+    }
 
     // Save metadata to table
-    await fetch(`${SUPABASE_URL}/rest/v1/merry_oceans_photos`, {
+    const metaRes = await fetch(`${SUPABASE_URL}/rest/v1/merry_oceans_photos`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -287,12 +311,26 @@ async function uploadPhoto() {
       })
     });
 
+    if (!metaRes.ok) {
+      const errText = await metaRes.text().catch(() => '');
+      throw new Error('Save ' + metaRes.status + ': ' + errText.slice(0, 120));
+    }
+
     showScreen('successScreen');
   } catch(err) {
     console.error(err);
     document.getElementById('uploadingIndicator').classList.remove('show');
     document.getElementById('submitBtn').disabled = false;
-    alert('Something went wrong. Please try again.');
+    // Show the error inline on the preview screen so the host can see what failed
+    let preview = document.getElementById('previewErrorBox');
+    if (!preview) {
+      preview = document.createElement('div');
+      preview.id = 'previewErrorBox';
+      preview.style.cssText = 'margin-top:12px;background:rgba(214,96,74,0.15);border:1px solid rgba(214,96,74,0.5);color:#FFD6CC;padding:10px 14px;border-radius:8px;font-size:12px;line-height:1.4;max-width:340px;text-align:center;';
+      document.getElementById('previewScreen').appendChild(preview);
+    }
+    preview.textContent = (err && err.message) ? err.message : 'Something went wrong. Please try again.';
+    preview.style.display = 'block';
   }
 }
 
@@ -306,6 +344,9 @@ function addAnother() {
   document.getElementById('charCount').textContent = '0/60';
   document.getElementById('submitBtn').disabled = true;
   document.getElementById('uploadingIndicator').classList.remove('show');
+  const pe = document.getElementById('previewErrorBox');
+  if (pe) pe.style.display = 'none';
+  clearError();
   showScreen('landingScreen');
 }
 
