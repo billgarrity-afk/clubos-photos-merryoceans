@@ -316,6 +316,25 @@ async function uploadPhoto() {
       throw new Error('Save ' + metaRes.status + ': ' + errText.slice(0, 120));
     }
 
+    // Award leaderboard points (non-blocking — if this fails, photo still succeeds)
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/merry_oceans_points`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': ANON_KEY,
+          'Authorization': `Bearer ${ANON_KEY}`,
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({
+          player_name: name,
+          points: 25,
+          action: 'photo_upload',
+          property_id: 'merry-oceans'
+        })
+      });
+    } catch(e) { console.log('Points award failed:', e); }
+
     showScreen('successScreen');
   } catch(err) {
     console.error(err);
